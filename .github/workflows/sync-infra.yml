@@ -1,0 +1,39 @@
+name: Sync Infrastructure to VPS
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docker-compose.yml'
+      - 'nginx/conf.d/**'
+
+jobs:
+  deploy-infra:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Sync Config Files via SCP
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.GLOBAL_VPS_IP }}
+          username: root
+          key: ${{ secrets.GLOBAL_SSH_KEY }}
+          # This copies the folder structure exactly as it is in Git
+          source: "docker-compose.yml,nginx/conf.d/*"
+          target: "/root/orchestrator"
+
+      - name: Remote Execute Commands via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.GLOBAL_VPS_IP }}
+          username: root
+          key: ${{ secrets.GLOBAL_SSH_KEY }}
+          script: |
+            cd /root/orchestrator
+            mkdir -p www/main-site
+            # Inject the Org Secret into the Docker environment
+            export CF_TUNNEL_TOKEN=${{ secrets.CF_TUNNEL_TOKEN }}
+            docker-compose up -d --remove-orphans
+            # Reload Nginx without stopping the container
+            docker exec global_nginx nginx -s reload
